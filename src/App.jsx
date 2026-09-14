@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Search, Check, AlertTriangle, X, Sprout, BookOpen, FlaskConical, ChefHat, ShoppingBag } from "lucide-react";
+import { supabase } from "./supabaseClient";
 
 /* ---------------------------------------------------------
    TOKENS
@@ -264,6 +265,22 @@ const FOODS = [
   { id: "pane_integrale", name: "Pane integrale", note: "di farina integrale", category: "Farine, pane e pasta",
     kcal: 247, protein_g: 10.5, carbs_g: 41, fat_g: 3.4, fiber_g: 6,
     aa: { his: 240, ile: 380, leu: 720, lys: 290, sit: 300, aaa: 900, thr: 300, trp: 130, val: 460 } },
+  { id: "pan_bauletto_bianco", name: "Pan bauletto bianco", note: "di farina raffinata, a fette", category: "Farine, pane e pasta",
+    // Amminoacidi stimati dallo stesso rapporto per grammo di proteina del
+    // Pane bianco (stessa famiglia: pane di frumento lievitato da farina raffinata).
+    kcal: 265, protein_g: 8, carbs_g: 50, fat_g: 3.5, fiber_g: 2.5,
+    aa: { his: 187, ile: 302, leu: 569, lys: 196, sit: 231, aaa: 711, thr: 231, trp: 98, val: 356 } },
+  { id: "pan_bauletto_grano_duro", name: "Pan bauletto di grano duro", note: "a fette", category: "Farine, pane e pasta",
+    kcal: 258, protein_g: 8.5, carbs_g: 45, fat_g: 3.8, fiber_g: 5,
+    aa: { his: 198, ile: 321, leu: 604, lys: 208, sit: 246, aaa: 756, thr: 246, trp: 104, val: 378 } },
+  { id: "pan_bauletto_integrale", name: "Pan bauletto integrale", note: "a fette", category: "Farine, pane e pasta",
+    // Amminoacidi stimati dallo stesso rapporto per grammo di proteina del
+    // Pane integrale (stessa famiglia: pane di frumento integrale lievitato).
+    kcal: 246, protein_g: 9.2, carbs_g: 37, fat_g: 5.2, fiber_g: 7.2,
+    aa: { his: 210, ile: 333, leu: 631, lys: 254, sit: 263, aaa: 789, thr: 263, trp: 114, val: 403 } },
+  { id: "pan_piuma", name: "Pan piuma", note: "senza crosta, con olio d'oliva", category: "Farine, pane e pasta",
+    kcal: 262, protein_g: 7.5, carbs_g: 49, fat_g: 4.5, fiber_g: 2.2,
+    aa: { his: 175, ile: 283, leu: 533, lys: 183, sit: 217, aaa: 667, thr: 217, trp: 92, val: 333 } },
   { id: "burro_arachidi", name: "Burro di arachidi", note: "senza zuccheri aggiunti", category: "Frutta secca e semi",
     kcal: 588, protein_g: 25, carbs_g: 20, fat_g: 50, fiber_g: 6,
     aa: { his: 620, ile: 870, leu: 1620, lys: 910, sit: 570, aaa: 2450, thr: 850, trp: 240, val: 1020 } },
@@ -1417,55 +1434,49 @@ function GuidePage({ focusSignal }) {
 }
 
 /* ---------------------------------------------------------
-   REGISTRO RICERCHE SENZA RISULTATI (demo con storage persistente)
-   In produzione questo corrisponde a un piccolo backend/DB (es. una
-   tabella Supabase con inserimento pubblico e lettura riservata).
+   REGISTRO RICERCHE SENZA RISULTATI
+   Tabella privata: chiunque può scrivere (per registrare i termini cercati
+   e non trovati), ma solo chi ha accesso al progetto Supabase può leggerla
+   dalla dashboard. Serve a capire quali alimenti aggiungere in futuro.
 --------------------------------------------------------- */
-const MISS_LOG_KEY = "vegamino:search-misses";
-
 async function logSearchMiss(term) {
   const clean = term.trim().toLowerCase();
   if (!clean) return;
   try {
-    let entries = [];
-    try {
-      const res = await window.storage.get(MISS_LOG_KEY, true);
-      entries = res ? JSON.parse(res.value) : [];
-    } catch (e) {
-      entries = [];
-    }
-    const idx = entries.findIndex((e) => e.term === clean);
-    if (idx >= 0) {
-      entries[idx].count += 1;
-      entries[idx].lastSeen = new Date().toISOString();
-    } else {
-      entries.push({ term: clean, count: 1, lastSeen: new Date().toISOString() });
-    }
-    entries.sort((a, b) => b.count - a.count);
-    if (entries.length > 200) entries = entries.slice(0, 200);
-    await window.storage.set(MISS_LOG_KEY, JSON.stringify(entries), true);
+    const { error } = await supabase.from("search_misses").insert({ term: clean });
+    if (error) console.error("[vegamino] errore scrivendo search_misses:", error); // TEMPORANEO, da rimuovere dopo il debug
   } catch (e) {
-    // Il logging non deve mai bloccare la ricerca: fallisce in silenzio.
+    console.error("[vegamino] eccezione scrivendo search_misses:", e); // TEMPORANEO, da rimuovere dopo il debug
   }
 }
 
-async function loadSearchMisses() {
+/* ---------------------------------------------------------
+   REGISTRO ALIMENTI SELEZIONATI
+   Tabella pubblica in lettura SOLO in forma aggregata (tramite la vista
+   food_selection_counts): il sito la usa per mostrare "i più cercati" in
+   prima pagina. Le righe singole (chi ha cercato cosa e quando) restano
+   private, solo il conteggio totale per alimento è visibile a tutti.
+--------------------------------------------------------- */
+async function logFoodSelection(foodId) {
   try {
-    const res = await window.storage.get(MISS_LOG_KEY, true);
-    return res ? JSON.parse(res.value) : [];
+    await supabase.from("food_selections").insert({ food_id: foodId });
+  } catch (e) {
+    // Come sopra: non deve mai bloccare l'interazione dell'utente.
+  }
+}
+
+async function loadTopSelectedFoods(limit = 6) {
+  try {
+    const { data, error } = await supabase
+      .from("food_selection_counts")
+      .select("food_id, selections")
+      .order("selections", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data || [];
   } catch (e) {
     return [];
   }
-}
-
-/* Nessun pulsante pubblico mostra questo registro: è consultabile solo da
-   console del browser (window.vegaminoAdmin.getSearchMisses()), così i
-   visitatori del sito non lo vedono. Attenzione: in questo prototipo è
-   comunque "sicurezza per oscurità", non un vero controllo di accesso —
-   nel progetto reale la lettura va ristretta lato server (RLS su Supabase
-   o una route admin protetta da password), come spiegato in chat. */
-if (typeof window !== "undefined") {
-  window.vegaminoAdmin = { getSearchMisses: loadSearchMisses };
 }
 
 /* ---------------------------------------------------------
@@ -1480,7 +1491,25 @@ export default function App() {
   const [suggestionCategory, setSuggestionCategory] = useState(null); // null = tutte le categorie
   const [guideFocusSignal, setGuideFocusSignal] = useState(0);
   const [targetProteinInput, setTargetProteinInput] = useState("");
+  const [topSelected, setTopSelected] = useState([]);
   const REFERENCE = REFERENCE_SETS.adult.values;
+
+  // Carica la classifica dei più selezionati una sola volta, all'avvio.
+  // Se Supabase non è ancora configurato (o la vista non ha ancora righe),
+  // loadTopSelectedFoods restituisce un array vuoto e la sezione resta nascosta.
+  useEffect(() => {
+    let cancelled = false;
+    loadTopSelectedFoods(3).then((rows) => {
+      if (cancelled) return;
+      // Alcuni food_id registrati in passato potrebbero non esistere più nel
+      // catalogo attuale (es. un alimento rimosso): li scartiamo qui.
+      const resolved = rows
+        .map((r) => ({ food: FOOD_MAP[r.food_id], selections: r.selections }))
+        .filter((r) => r.food);
+      setTopSelected(resolved);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   function openThresholdGuide() {
     setPage("guide");
@@ -1551,7 +1580,22 @@ export default function App() {
     setSelectedIds((prev) => {
       if (prev.includes(id)) return prev.filter((x) => x !== id);
       if (prev.length >= MAX_SELECTION) return prev;
+      logFoodSelection(id); // registrato solo quando si aggiunge, non quando si toglie
       return [...prev, id];
+    });
+  }
+
+  // Permette di sovrascrivere a mano i grammi di un singolo alimento già
+  // selezionato (es. "oggi ho usato 140 g di lenticchie"), invece di usare
+  // solo la quantità minima calcolata automaticamente. L'editing manuale
+  // ha la precedenza sulla scala per proteina target, che viene azzerata.
+  function updateGramsAt(index, rawValue) {
+    const value = Math.max(0, Math.round(Number(rawValue) || 0));
+    setTargetProteinInput("");
+    setCustomGrams((prev) => {
+      const base = prev && prev.length === selectedIds.length ? [...prev] : [...grams];
+      base[index] = value;
+      return base;
     });
   }
 
@@ -1561,6 +1605,7 @@ export default function App() {
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, fontFamily: "IBM Plex Sans, sans-serif" }} className="vgm-page">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;1,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+        *, *::before, *::after { box-sizing: border-box; }
         .vgm-scroll::-webkit-scrollbar { width: 6px; }
         .vgm-scroll::-webkit-scrollbar-thumb { background: rgba(242,238,221,0.18); border-radius: 4px; }
         .vgm-btn:focus-visible, .vgm-chip:focus-visible, .vgm-input:focus-visible, .vgm-tab:focus-visible {
@@ -1644,6 +1689,31 @@ export default function App() {
                   }}
                 />
               </div>
+
+              {!isSearching && selectedIds.length === 0 && topSelected.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 6, color: C.mustard, letterSpacing: 0.2 }}>
+                    Più cercati dagli utenti
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {topSelected.map(({ food }) => (
+                      <button
+                        key={food.id}
+                        className="vgm-btn vgm-food-btn"
+                        onClick={() => toggleSelection(food.id)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 9, textAlign: "left",
+                          background: "transparent", border: `1px solid ${C.borderStrong}`,
+                          borderRadius: 8, padding: "6px 8px", cursor: "pointer", width: "100%",
+                        }}
+                      >
+                        <FoodIcon category={food.category} size={17} />
+                        <span style={{ fontSize: 13.5, color: C.text, flex: 1, minWidth: 0 }}>{food.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 12 }}>
                 {selectedIds.length}/{MAX_SELECTION} selezionati
@@ -1751,7 +1821,23 @@ export default function App() {
                         borderRadius: 999, padding: "5px 6px 5px 12px", fontSize: 13,
                       }}>
                         {f.name}
-                        <span style={{ color: C.mustard, fontSize: 12, fontWeight: 600 }}>{displayGrams[i]} g</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                          <input
+                            type="number"
+                            min={0}
+                            inputMode="numeric"
+                            value={displayGrams[i]}
+                            onChange={(e) => updateGramsAt(i, e.target.value)}
+                            aria-label={`Grammi di ${f.name} (modificabile)`}
+                            title="Modifica per indicare la quantità che hai usato davvero"
+                            style={{
+                              width: 44, background: "transparent", border: "none",
+                              borderBottom: `1px dashed ${C.mustard}`, color: C.mustard,
+                              fontSize: 12, fontWeight: 600, textAlign: "right", padding: "0 2px",
+                            }}
+                          />
+                          <span style={{ color: C.mustard, fontSize: 12, fontWeight: 600 }}>g</span>
+                        </span>
                         <a
                           href={buildAmazonSearchUrl(f.name)}
                           target="_blank"
@@ -1782,6 +1868,11 @@ export default function App() {
                       </button>
                     )}
                   </div>
+                  {selectedIds.length > 0 && (
+                    <p style={{ color: C.muted, fontSize: 12, margin: "-4px 0 0" }}>
+                      Modifica i grammi per indicare quanto hai usato davvero. Il peso si intende nello stato indicato tra parentesi (es. crudo, cotto, in scatola).
+                    </p>
+                  )}
 
                   {/* SCHEDA / PROFILO */}
                   <section style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20 }}>
@@ -1863,6 +1954,12 @@ export default function App() {
                           : <>Nessun alimento da solo basta a coprire {AA_LABEL[limiting[0]]}: questi aiutano di più.</>}
                       </p>
 
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                        <FlaskConical size={13} color={C.muted} />
+                        <span style={{ color: C.muted, fontSize: 12.5, fontWeight: 600 }}>
+                          Filtra per tipo di alimento complementare:
+                        </span>
+                      </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
                         <button
                           className="vgm-chip vgm-btn"
