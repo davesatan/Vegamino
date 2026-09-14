@@ -330,7 +330,7 @@ function buildRecipeSearchUrl(foods) {
    con il tuo tag reale una volta iscritto al programma (affiliazione.amazon.it).
    Punta a una RICERCA su Amazon, non a un prodotto specifico: niente ASIN da
    mantenere aggiornati, e Amazon mostra sempre risultati disponibili. */
-const AMAZON_ASSOCIATE_TAG = "vegamino-21"; // <-- sostituisci con il tuo tag reale
+const AMAZON_ASSOCIATE_TAG = "vegamino21-21"; // <-- sostituisci con il tuo tag reale
 const AMAZON_DOMAIN = "https://www.amazon.it";
 
 function buildAmazonSearchUrl(foodName) {
