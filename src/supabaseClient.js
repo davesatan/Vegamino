@@ -7,19 +7,20 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Un client "finto" che non fa nulla, usato solo se manca la configurazione.
-// Serve a evitare che l'intero sito smetta di funzionare (pagina bianca/nera)
-// quando le variabili d'ambiente non sono ancora state impostate: meglio che
-// il logging su Supabase resti silenziosamente inattivo piuttosto che
-// bloccare la visualizzazione di tutto il resto dell'app.
+// Un client "finto" ma completamente "thenable" a ogni passaggio della catena,
+// usato solo se manca la configurazione. Serve a evitare che l'intero sito
+// smetta di funzionare quando le variabili d'ambiente non sono ancora state
+// impostate: meglio restituire dati vuoti che bloccare tutto.
 function createNoopClient() {
-  const noopBuilder = {
-    insert: async () => ({ data: null, error: null }),
-    select: () => noopBuilder,
-    order: () => noopBuilder,
-    limit: async () => ({ data: [], error: null }),
+  const emptyResult = { data: [], error: null };
+  const chain = {
+    select: () => chain,
+    order: () => chain,
+    limit: () => chain,
+    insert: () => chain,
+    then: (resolve) => resolve(emptyResult),
   };
-  return { from: () => noopBuilder };
+  return { from: () => chain };
 }
 
 let client;
@@ -27,11 +28,11 @@ if (supabaseUrl && supabaseAnonKey) {
   try {
     client = createClient(supabaseUrl, supabaseAnonKey);
   } catch (e) {
-    console.warn("Supabase non configurato correttamente, il logging resta disattivato:", e.message);
+    console.warn("Supabase non configurato correttamente, il catalogo e il logging restano disattivati:", e.message);
     client = createNoopClient();
   }
 } else {
-  console.warn("Variabili VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY mancanti: il logging resta disattivato.");
+  console.warn("Variabili VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY mancanti: catalogo e logging restano disattivati.");
   client = createNoopClient();
 }
 
