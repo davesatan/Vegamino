@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Search, Check, AlertTriangle, X, Sprout, BookOpen, FlaskConical, ChefHat, ShoppingBag } from "lucide-react";
 import { supabase } from "./supabaseClient";
+import { Analytics } from "@vercel/analytics/react";
 
 /* ---------------------------------------------------------
    TOKENS
@@ -900,6 +901,7 @@ export default function App() {
 
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, fontFamily: "IBM Plex Sans, sans-serif" }} className="vgm-page">
+      <Analytics />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;1,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
         *, *::before, *::after { box-sizing: border-box; }
