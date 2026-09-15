@@ -330,11 +330,25 @@ function buildRecipeSearchUrl(foods) {
    con il tuo tag reale una volta iscritto al programma (affiliazione.amazon.it).
    Punta a una RICERCA su Amazon, non a un prodotto specifico: niente ASIN da
    mantenere aggiornati, e Amazon mostra sempre risultati disponibili. */
-const AMAZON_ASSOCIATE_TAG = "vegamino21-21"; // <-- sostituisci con il tuo tag reale
+const AMAZON_ASSOCIATE_TAG = "vegamino21-21";
 const AMAZON_DOMAIN = "https://www.amazon.it";
 
-function buildAmazonSearchUrl(foodName) {
-  const query = `${foodName} biologico`;
+/* "Biologico" ha senso come termine di ricerca per un ingrediente grezzo
+   (legumi secchi, cereali, frutta secca), ma suona innaturale per un
+   alimento già cotto, fritto, tostato o per un preparato come tofu/tempeh/
+   seitan - lì si cerca meglio senza aggiunte, o il risultato peggiora. */
+function amazonSearchModifier(food) {
+  const isPrepared =
+    food.category === "Preparati e fermentati" ||
+    /cotto|fritto|tostato|germogliato|essiccato|fermentato/i.test(food.note);
+  return isPrepared ? "" : " biologico";
+}
+
+function buildAmazonSearchUrl(food) {
+  // Le varianti tra parentesi nel nome (stato, varietà) sono utili nella
+  // lista alimenti ma appesantiscono inutilmente una ricerca Amazon.
+  const baseName = food.name.replace(/\s*\([^)]*\)/g, "").trim();
+  const query = `${baseName}${amazonSearchModifier(food)}`;
   return `${AMAZON_DOMAIN}/s?k=${encodeURIComponent(query)}&tag=${AMAZON_ASSOCIATE_TAG}`;
 }
 
@@ -1122,14 +1136,20 @@ export default function App() {
                           <span style={{ color: C.mustard, fontSize: 12, fontWeight: 600 }}>g</span>
                         </span>
                         <a
-                          href={buildAmazonSearchUrl(f.name)}
+                          href={buildAmazonSearchUrl(f)}
                           target="_blank"
                           rel="noreferrer sponsored"
                           aria-label={`Acquista ${f.name} su Amazon`}
                           title={`Acquista ${f.name} su Amazon`}
-                          style={{ color: C.muted, display: "flex", padding: 3, textDecoration: "none" }}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 4,
+                            background: "#FF9900", color: "#131A22",
+                            borderRadius: 999, padding: "3px 9px 3px 7px",
+                            fontSize: 11, fontWeight: 700, textDecoration: "none",
+                          }}
                         >
-                          <ShoppingBag size={13} />
+                          <ShoppingBag size={12} />
+                          Amazon
                         </a>
                         <button
                           className="vgm-btn"
