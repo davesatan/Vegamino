@@ -76,7 +76,8 @@ const AA_ROLE = {
   val: "metabolismo energetico e recupero muscolare",
 };
 
-const MAX_SELECTION = 3;
+const MAX_SELECTION = 3; // massimo alimenti selezionabili a mano
+const MAX_RESULTING = 4; // il profilo finale può arrivare a un 4° alimento, via suggerimento
 
 /* ---------------------------------------------------------
    DATASET — valori indicativi per 100 g (educational estimates)
@@ -108,6 +109,7 @@ async function loadFoods() {
       fat_g: Number(row.fat_g),
       fiber_g: Number(row.fiber_g),
       excludeFromSuggestions: !!row.exclude_from_suggestions,
+      estimated: !!row.estimated,
       aa: {
         his: Number(row.his), ile: Number(row.ile), leu: Number(row.leu),
         lys: Number(row.lys), sit: Number(row.sit), aaa: Number(row.aaa),
@@ -356,6 +358,13 @@ function buildAmazonSearchUrl(food) {
 /* ---------------------------------------------------------
    COMPONENTI VISIVI CONDIVISI
 --------------------------------------------------------- */
+// Aggiunge un asterisco al nome quando i valori dell'alimento sono stimati
+// per proporzione da un alimento di origine (nessun dato diretto reperibile),
+// invece che presi da una fonte reale verificata.
+function foodLabel(food) {
+  return food.estimated ? `${food.name} *` : food.name;
+}
+
 function FoodIcon({ category, size = 22 }) {
   const color = CATEGORY_COLOR[category] || C.muted;
   return (
@@ -798,9 +807,12 @@ export default function App() {
   const displayCombo = scaleFactor !== 1 ? computeComboAbsolute(selectedIds, displayGrams) : current;
 
   const canAddMore = selectedIds.length < MAX_SELECTION;
+  // Il profilo può arrivare fino a MAX_RESULTING (4) alimenti: i primi 3 si
+  // scelgono a mano dalla lista, il 4° arriva solo tramite il suggerimento
+  // qui sotto (mai selezionabile direttamente dalla sidebar).
   const suggestions = useMemo(
-    () => (current && !complete && canAddMore ? getSuggestions(current, selectedIds, REFERENCE, suggestionCategory) : []),
-    [current, complete, canAddMore, selectedIds, suggestionCategory]
+    () => (current && !complete && selectedIds.length < MAX_RESULTING ? getSuggestions(current, selectedIds, REFERENCE, suggestionCategory) : []),
+    [current, complete, selectedIds, suggestionCategory]
   );
   const alternativeCombos = useMemo(
     () => (!complete && !canAddMore ? getAlternativeCombos(selectedIds, REFERENCE) : []),
@@ -846,6 +858,21 @@ export default function App() {
       if (prev.includes(id)) return prev.filter((x) => x !== id);
       if (prev.length >= MAX_SELECTION) return prev;
       logFoodSelection(id); // registrato solo quando si aggiunge, non quando si toglie
+      return [...prev, id];
+    });
+  }
+
+  // A selezione piena (3/3), un suggerimento non sostituisce nulla: si
+  // aggiunge come 4° alimento al profilo, l'unico modo per arrivare a 4
+  // (la sidebar resta sempre limitata a 3 scelte dirette).
+  function addFourthSuggestion(id) {
+    setCustomGrams(null);
+    setVisibleSuggestions(SUGGESTIONS_PAGE);
+    setSuggestionCategory(null);
+    setTargetProteinInput("");
+    setSelectedIds((prev) => {
+      if (prev.includes(id) || prev.length >= MAX_RESULTING) return prev;
+      logFoodSelection(id);
       return [...prev, id];
     });
   }
@@ -1015,8 +1042,10 @@ export default function App() {
               )}
 
               <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 12 }}>
-                {selectedIds.length}/{MAX_SELECTION} selezionati
-                {selectedIds.length >= MAX_SELECTION && " · massimo raggiunto"}
+                {selectedIds.length > MAX_SELECTION
+                  ? `${MAX_SELECTION}/${MAX_SELECTION} scelti + 1 aggiunto per completare`
+                  : `${selectedIds.length}/${MAX_SELECTION} selezionati`}
+                {selectedIds.length === MAX_SELECTION && " · massimo raggiunto"}
               </div>
 
               <div className="vgm-scroll" style={{ maxHeight: 520, overflowY: "auto", paddingRight: 4 }}>
@@ -1058,7 +1087,7 @@ export default function App() {
                               {active && <Check size={11} color={C.bg} />}
                             </span>
                             <FoodIcon category={f.category} size={17} />
-                            <span style={{ fontSize: 13.5, color: active ? C.text : C.muted }}>{f.name}</span>
+                            <span style={{ fontSize: 13.5, color: active ? C.text : C.muted }}>{foodLabel(f)}</span>
                           </button>
                         );
                       })}
@@ -1119,7 +1148,7 @@ export default function App() {
                         background: C.surface2, border: `1px solid ${C.borderStrong}`,
                         borderRadius: 999, padding: "5px 6px 5px 12px", fontSize: 13,
                       }}>
-                        {f.name}
+                        {foodLabel(f)}
                         <span style={{ display: "flex", alignItems: "center", gap: 2 }}>
                           <input
                             type="number"
@@ -1184,7 +1213,7 @@ export default function App() {
                     <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
                       <h2 style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 22, margin: 0 }}>
                         {selectedIds.length === 1
-                          ? selectedFoods[0].name
+                          ? foodLabel(selectedFoods[0])
                           : "Profilo del piatto combinato"}
                       </h2>
                       <span style={{ color: C.muted, fontSize: 13 }}>
@@ -1248,15 +1277,19 @@ export default function App() {
                   </section>
 
                   {/* COMPLETAMENTO */}
-                  {!complete && canAddMore && (
+                  {!complete && selectedIds.length < MAX_RESULTING && (
                     <section style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 20 }}>
                       <h3 style={{ fontFamily: "Fraunces, serif", fontWeight: 600, fontSize: 17, margin: "0 0 4px" }}>
-                        Completa il profilo con
+                        {canAddMore ? "Completa il profilo con" : "Aggiungi un quarto alimento per completare"}
                       </h3>
                       <p style={{ color: C.muted, fontSize: 13, margin: "0 0 14px" }}>
-                        {suggestions.length > 0 && suggestions[0].mode === "complete"
-                          ? <>Quanto aggiungere, oltre ai {grams.reduce((a, b) => a + b, 0)} g già scelti di {selectedFoods.map((f) => f.name.toLowerCase()).join(" + ")}, per arrivare al 100% su tutti gli amminoacidi.</>
-                          : <>Nessun alimento da solo basta a coprire {AA_LABEL[limiting[0]]}: questi aiutano di più.</>}
+                        {canAddMore ? (
+                          suggestions.length > 0 && suggestions[0].mode === "complete"
+                            ? <>Quanto aggiungere, oltre ai {grams.reduce((a, b) => a + b, 0)} g già scelti di {selectedFoods.map((f) => f.name.toLowerCase()).join(" + ")}, per arrivare al 100% su tutti gli amminoacidi.</>
+                            : <>Nessun alimento da solo basta a coprire {AA_LABEL[limiting[0]]}: questi aiutano di più.</>
+                        ) : (
+                          <>Hai già scelto il massimo di {MAX_SELECTION} alimenti dalla lista, ma il profilo può arrivare fino a {MAX_RESULTING}: aggiungi uno di questi, senza togliere nulla.</>
+                        )}
                       </p>
 
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
@@ -1312,7 +1345,7 @@ export default function App() {
                               <div key={s.food.id}>
                                 <button
                                   className="vgm-btn vgm-food-btn"
-                                  onClick={() => toggleSelection(s.food.id)}
+                                  onClick={() => (canAddMore ? toggleSelection(s.food.id) : addFourthSuggestion(s.food.id))}
                                   style={{
                                     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14,
                                     width: "100%", textAlign: "left", cursor: "pointer",
@@ -1321,7 +1354,7 @@ export default function App() {
                                 >
                                   <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                                     <FoodIcon category={s.food.category} size={22} />
-                                    <span style={{ fontSize: 15, color: C.text, fontWeight: 500 }}>{s.food.name}</span>
+                                    <span style={{ fontSize: 15, color: C.text, fontWeight: 500 }}>{foodLabel(s.food)}</span>
                                   </div>
                                   <div style={{ textAlign: "right", flexShrink: 0 }}>
                                     <div style={{ fontSize: 24, fontWeight: 700, color: C.success, lineHeight: 1.1, fontFamily: "IBM Plex Sans, sans-serif" }}>
@@ -1347,7 +1380,7 @@ export default function App() {
                             <button
                               key={s.food.id}
                               className="vgm-chip vgm-btn"
-                              onClick={() => toggleSelection(s.food.id)}
+                              onClick={() => (canAddMore ? toggleSelection(s.food.id) : addFourthSuggestion(s.food.id))}
                               title="Da solo non basta a completare il profilo, ma aiuta sull'amminoacido più carente"
                               style={{
                                 display: "flex", alignItems: "center", gap: 6,
@@ -1356,7 +1389,7 @@ export default function App() {
                                 borderRadius: 999, padding: "6px 12px", fontSize: 13, cursor: "pointer",
                               }}
                             >
-                              {s.food.name}
+                              {foodLabel(s.food)}
                               <span style={{ opacity: 0.75, fontSize: 11.5 }}>· {s.score}%</span>
                             </button>
                           ))}
@@ -1384,15 +1417,15 @@ export default function App() {
                         Alternative di quantità per completare il profilo
                       </h3>
                       <p style={{ color: C.muted, fontSize: 13, margin: "0 0 14px" }}>
-                        Restando sugli stessi {MAX_SELECTION} alimenti, ecco altre combinazioni di quantità che
+                        Restando sugli stessi {selectedIds.length} alimenti, ecco altre combinazioni di quantità che
                         raggiungono il 100% su tutti gli amminoacidi.
                       </p>
 
                       {alternativeCombos.length === 0 && (
                         <div style={{ color: C.muted, fontSize: 13.5, border: `1px dashed ${C.border}`, borderRadius: 12, padding: 18 }}>
-                          Nessuna combinazione di quantità tra questi {MAX_SELECTION} alimenti risulta completa su
+                          Nessuna combinazione di quantità tra questi {selectedIds.length} alimenti risulta completa su
                           tutti gli amminoacidi, in nessuna proporzione provata. Serve un alimento diverso al posto
-                          di uno dei tre per coprire {AA_LABEL[limiting[0]]}.
+                          di uno di questi per coprire {AA_LABEL[limiting[0]]}.
                         </div>
                       )}
 
@@ -1454,6 +1487,11 @@ export default function App() {
           I valori nutrizionali e amminoacidici sono stime indicative a scopo educativo, non dati di laboratorio.
           Per scelte alimentari specifiche fai riferimento a una banca dati certificata (es. USDA FoodData Central)
           o a un professionista della nutrizione.
+          <div style={{ marginTop: 8 }}>
+            * Gli alimenti contrassegnati con un asterisco non hanno una fonte diretta reperibile: i loro valori
+            sono stimati per proporzione dall'alimento di origine (es. una crema dal corrispondente frutto intero),
+            non da un dato nutrizionale specifico verificato.
+          </div>
           <div style={{ marginTop: 8 }}>
             In qualità di Affiliato Amazon, Vegamino riceve un guadagno dagli acquisti idonei effettuati
             tramite i link a Amazon presenti in questa pagina.
